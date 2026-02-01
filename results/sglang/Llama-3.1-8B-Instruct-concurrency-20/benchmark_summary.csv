@@ -1,0 +1,2 @@
+timestamp,backend,concurrency,total_requests,duration_sec,ttft_mean_ms,ttft_p99_ms,e2e_mean_ms,e2e_p99_ms,itl_mean_ms,itl_p99_ms,tpot_mean_ms,system_tps,system_rps,prefill_speed,gpu_name,gpu_util_mean,gpu_util_max,mem_used_mean_mb,mem_used_max_mb,mem_total_mb,power_mean_w,power_max_w,temp_mean_c,temp_max_c
+20260201_131335,sglang,20,100,79.773,1554.439,2441.405,15544.388,24414.053,13989.949,21972.648,22.492,842.499,1.254,130.337,NVIDIA A100-SXM4-80GB,85.48,100,72899.8,72918.4,81920.0,270.6,456.9,48.1,57
