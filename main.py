@@ -154,13 +154,13 @@ def save_results_csv(
     return summary_file, per_request_file
 
 
-async def send_request(session, url, prompt_data, sem):
+async def send_request(session, url, prompt_data, sem, model_name):
     """Sends a single request and captures raw timestamps."""
     async with sem:
         req_start = time.perf_counter()
         
         payload = {
-            "model": MODEL_NAME,
+            "model": model_name,
             "messages": [{"role": "user", "content": prompt_data["prompt"]}],
             "stream": True,
             "max_tokens": prompt_data["max_output_tokens"],
@@ -215,6 +215,9 @@ async def main(args):
     with open(args.dataset, 'r') as f:
         dataset = json.load(f)
     
+    # Get model name from args or use default
+    model_name = getattr(args, 'model', MODEL_NAME) or MODEL_NAME
+    
     # Start GPU monitoring
     gpu_monitor = GPUMonitor(sample_interval=0.1)
     gpu_monitor.start()
@@ -225,9 +228,10 @@ async def main(args):
         start_time = time.perf_counter()
         
         print(f"Starting Benchmark on {args.url} with {args.concurrency} concurrent requests...")
+        print(f"Model: {model_name}")
         
         for item in dataset:
-            task = asyncio.create_task(send_request(session, args.url, item, sem))
+            task = asyncio.create_task(send_request(session, args.url, item, sem, model_name))
             tasks.append(task)
         
         results = await asyncio.gather(*tasks)
