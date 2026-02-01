@@ -1,210 +1,162 @@
 # LLM Inference Benchmark
 
-A comprehensive benchmarking suite for comparing LLM inference engines (vLLM, SGLang, llama.cpp) with detailed latency, throughput, and GPU utilization metrics.
+A comprehensive benchmarking suite for comparing LLM inference engines (vLLM, SGLang) with detailed latency, throughput, and GPU utilization metrics.
+
+## 🔬 Experiment Results & Conclusions
+
+We benchmarked **vLLM** and **SGLang** on an **NVIDIA A100-SXM4-80GB** with two models:
+
+- **Llama-3.1-8B-Instruct**
+- **Qwen3-8B**
+
+### Key Findings
+
+| Metric                     | vLLM         | SGLang       | Winner                      |
+| -------------------------- | ------------ | ------------ | --------------------------- |
+| **Low Concurrency (20)**   | 64s duration | 80s duration | ✅ vLLM                     |
+| **High Concurrency (100)** | 24s duration | 23s duration | ✅ SGLang                   |
+| **Peak TPS**               | 2,311 tok/s  | 2,950 tok/s  | ✅ SGLang (+28%)            |
+| **GPU Utilization**        | 73%          | 96%          | ✅ SGLang (Full Saturation) |
+| **Power Efficiency**       | 289W         | 343W         | ✅ vLLM (-19%)              |
+
+### Recommendations
+
+| Use Case                              | Recommended Backend |
+| ------------------------------------- | ------------------- |
+| **Chatbots, APIs, Interactive Apps**  | vLLM                |
+| **Batch Processing, Data Generation** | SGLang              |
+| **Power-Constrained Environments**    | vLLM                |
+| **Maximum Throughput**                | SGLang              |
+
+### Visualization
+
+Run the visualization script to generate comparison plots:
+
+```bash
+python visualize.py
+```
+
+Generated plots in `plots/`:
+
+- `throughput_all_combined.png` - All models & backends comparison
+- `cross_model_comparison.png` - Peak performance by model
+- `latency_heatmap.png` - E2E latency across configurations
+- `gpu_comparison.png` - GPU utilization & power consumption
+- `scaling_efficiency.png` - TPS per concurrent request
+- `summary_table.png` - Full results summary
+
+---
 
 ## Features
 
-- **Multi-backend support**: vLLM, SGLang, llama.cpp
-- **Async load testing**: Simulates concurrent users with configurable concurrency
+- **Multi-backend support**: vLLM, SGLang
+- **Multi-model support**: Dynamic model selection via `--model` flag
+- **Async load testing**: Configurable concurrency levels (default: 20, 50, 80, 100)
 - **Comprehensive metrics**: TTFT, E2E latency, ITL, TPOT, throughput (TPS/RPS)
 - **GPU monitoring**: Real-time GPU utilization, memory, power, and temperature
-- **Export formats**: JSON and CSV for analysis and plotting
+- **Visualization**: Auto-generated comparison charts
+- **Export formats**: JSON and CSV for analysis
 
 ## Installation
 
 ```bash
-# Clone the repository
-git clone <repo-url>
+git clone https://github.com/staru09/llm_infra_bench.git
 cd llm_infra_bench
 
 # Install dependencies
-pip install aiohttp numpy requests pynvml python-dotenv
-
-# For dataset generation (optional)
-pip install openai  # or use OpenRouter
+pip install aiohttp numpy requests pynvml pandas matplotlib
 ```
 
 ## Quick Start
 
-### 1. Generate Dataset
-
-Create a benchmark dataset using Claude Opus via OpenRouter:
+### Run Full Benchmark Suite
 
 ```bash
-# Set your API key
-export OPENROUTER_API_KEY=your_key_here
+# Run vLLM at all concurrency levels (20, 50, 80, 100)
+python benchmark.py --backend vllm
 
-# Generate 18 diverse prompts
-python dataset.py
+# Run SGLang at all concurrency levels
+python benchmark.py --backend sglang
+
+# Run both backends
+python benchmark.py --backend all
+
+# Custom model
+python benchmark.py --backend vllm --model Qwen/Qwen3-8B
+
+# Single concurrency level
+python benchmark.py --backend sglang --concurrency 50
 ```
 
-This creates `benchmark_dataset.json` with prompts across categories: coding, reasoning, creative writing, summarization, etc.
-
-### 2. Run Benchmarks
-
-**Option A: Unified Runner (Recommended)**
+### Generate Visualizations
 
 ```bash
-# Run single backend
-python benchmark.py --backend vllm --concurrency 20
-
-# Run all backends sequentially
-python benchmark.py --backend all --concurrency 10
-
-# Custom dataset
-python benchmark.py --backend sglang --dataset my_prompts.json
+python visualize.py
+# Plots saved to plots/
 ```
 
-**Option B: Individual Backend Scripts**
+## Configuration
 
-```bash
-# These scripts start the server, run benchmark, then cleanup
-python run_vllm.py
-python run_sglang.py
-python run_llamacpp.py
-```
+### benchmark.py
 
-**Option C: Direct Client (server already running)**
-
-```bash
-python main.py --url http://localhost:8000 --backend vllm --concurrency 20
-```
-
-## Configuration Parameters
-
-### main.py (Benchmark Client)
-
-| Parameter | Default | Description |
-|-----------|---------|-------------|
-| `--url` | `http://localhost:8000` | Server endpoint |
-| `--backend` | `unknown` | Backend name (for labeling results) |
-| `--concurrency` | `10` | Number of concurrent requests |
-| `--dataset` | `benchmark_dataset.json` | Path to prompts JSON file |
-| `--output` | `results` | Directory to save JSON/CSV results |
-
-### benchmark.py (Unified Runner)
-
-| Parameter | Default | Description |
-|-----------|---------|-------------|
-| `--backend` | (required) | `vllm`, `sglang`, `llamacpp`, or `all` |
-| `--concurrency` | `20` | Concurrent requests |
-| `--dataset` | `benchmark_dataset.json` | Prompts file |
+| Parameter       | Default                            | Description                |
+| --------------- | ---------------------------------- | -------------------------- |
+| `--backend`     | (required)                         | `vllm`, `sglang`, or `all` |
+| `--model`       | `meta-llama/Llama-3.1-8B-Instruct` | Model to benchmark         |
+| `--concurrency` | All (20,50,80,100)                 | Single concurrency level   |
+| `--dataset`     | `sharegpt_data.json`               | Dataset file               |
 
 ### Backend Configurations
 
 Edit the `CONFIG` dict in each runner script:
 
 **run_vllm.py**
+
 ```python
 CONFIG = {
-    "model": "meta-llama/Meta-Llama-3-8B-Instruct",
+    "model": "meta-llama/Llama-3.1-8B-Instruct",
     "port": 8000,
-    "tensor_parallel_size": 1,      # GPUs for tensor parallelism
+    "tensor_parallel_size": 1,
     "gpu_memory_utilization": 0.90,
-    "dtype": "float16",             # or "bfloat16" for H100
+    "dtype": "float16",
     "max_model_len": 4096,
 }
 ```
 
-**run_sglang.py**
+**run_sglang.py** (Offline Engine)
+
 ```python
 CONFIG = {
-    "model_path": "meta-llama/Meta-Llama-3-8B-Instruct",
-    "port": 30000,
+    "model_path": "meta-llama/Llama-3.1-8B-Instruct",
     "tp_size": 1,
     "mem_fraction_static": 0.85,
 }
 ```
 
-**run_llamacpp.py**
-```python
-CONFIG = {
-    "binary_path": "./llama-server",
-    "model_path": "./model.gguf",
-    "port": 8080,
-    "ctx_size": 8192,
-    "n_gpu_layers": 999,  # Full GPU offload
-    "n_parallel": 32,     # Concurrent slots
-}
-```
+## Output
 
-## Output Metrics
-
-### Console Output
-
-```
-=== RESULTS FOR vllm ===
-Total Requests: 18
-Duration:       12.45s
-System TPS:     342.50 tok/s
-TTFT (ms):      Mean: 45.23 | P99: 112.50
-E2E (ms):       Mean: 234.12 | P99: 567.89
-TPOT (ms):      12.34
-ITL P99 (ms):   15.67
-
-=== GPU METRICS (NVIDIA RTX 4090) ===
-GPU Util:       Mean: 87.3% | Max: 99.0%
-Memory:         Mean: 18432MB | Max: 19200MB / 24576MB
-Power:          Mean: 312.5W | Max: 450.0W
-Temperature:    Mean: 68.2C | Max: 74.0C
-```
-
-### Saved Files
+### Results Structure
 
 ```
 results/
-├── benchmark_summary.csv         # All runs (append mode)
-├── vllm_20260201_143000.json     # Full export with GPU time-series
-├── vllm_20260201_143000_requests.csv
-└── ...
+├── vllm/
+│   ├── Llama-3.1-8B-Instruct-concurrency-20/
+│   │   ├── benchmark_summary.csv
+│   │   ├── vllm_20260201_143000.json
+│   │   └── vllm_20260201_143000_requests.csv
+│   └── Qwen3-8B-concurrency-100/
+│       └── ...
+└── sglang/
+    └── ...
 ```
 
 ### Metrics Definitions
 
-| Metric | Description |
-|--------|-------------|
+| Metric   | Description                                             |
+| -------- | ------------------------------------------------------- |
 | **TTFT** | Time To First Token - latency until first token arrives |
-| **E2E** | End-to-End latency - total request duration |
-| **ITL** | Inter-Token Latency - time between consecutive tokens |
-| **TPOT** | Time Per Output Token - (E2E - TTFT) / (tokens - 1) |
-| **TPS** | Tokens Per Second - system throughput |
-| **RPS** | Requests Per Second - system throughput |
-
-## Project Structure
-
-```
-llm_infra_bench/
-├── main.py           # Async benchmark client
-├── metrics.py        # Metrics dataclasses and calculator
-├── gpu_monitor.py    # NVIDIA GPU monitoring (pynvml)
-├── dataset.py        # Synthetic dataset generator (OpenRouter)
-├── benchmark.py      # Unified runner for all backends
-├── run_vllm.py       # vLLM server launcher
-├── run_sglang.py     # SGLang server launcher
-├── run_llamacpp.py   # llama.cpp server launcher
-└── results/          # Output directory
-```
-
-## Example Workflow
-
-```bash
-# 1. Generate dataset
-python dataset.py
-
-# 2. Run benchmarks on all backends
-python benchmark.py --backend all --concurrency 20
-
-# 3. Results saved to results/benchmark_summary.csv
-# 4. Use your favorite tool to plot and compare!
-```
-
-## Requirements
-
-- Python 3.10+
-- NVIDIA GPU with CUDA
-- `pynvml` for GPU monitoring
-- Backend-specific: vLLM, SGLang, or llama.cpp installed
-
-## License
-
-MIT
+| **E2E**  | End-to-End latency - total request duration             |
+| **ITL**  | Inter-Token Latency - time between consecutive tokens   |
+| **TPOT** | Time Per Output Token - (E2E - TTFT) / (tokens - 1)     |
+| **TPS**  | Tokens Per Second - system throughput                   |
+| **RPS**  | Requests Per Second - completed requests throughput     |
