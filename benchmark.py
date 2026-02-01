@@ -11,7 +11,7 @@ Usage:
 import argparse
 import sys
 
-DEFAULT_MODEL = "meta-llama/Llama-3.1-8B-Instruct"
+DEFAULT_MODEL = "Qwen/Qwen3-8B"
 CONCURRENCY_LEVELS = [20, 50, 80, 100]
 
 

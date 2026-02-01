@@ -11,7 +11,7 @@ import aiohttp
 from metrics import RequestMetrics, MetricsCalculator, BenchmarkResults
 from gpu_monitor import GPUMonitor, GPUMetrics, NVML_AVAILABLE
 
-MODEL_NAME = "meta-llama/Llama-3.1-8B-Instruct"
+MODEL_NAME = "Qwen/Qwen3-8B"
 TIMEOUT = 300
 
 
