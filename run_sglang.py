@@ -8,7 +8,7 @@ import requests
 import sys
 
 CONFIG = {
-    "model_path": "meta-llama/Meta-Llama-3-8B-Instruct",
+    "model_path": "meta-llama/Llama-3.1-8B-Instruct",
     "port": 30000,
     "tp_size": 1,
     "mem_fraction_static": 0.85,

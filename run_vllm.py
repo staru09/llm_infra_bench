@@ -8,7 +8,7 @@ import requests
 import sys
 
 CONFIG = {
-    "model": "meta-llama/Meta-Llama-3-8B-Instruct",
+    "model": "meta-llama/Llama-3.1-8B-Instruct",
     "port": 8000,
     "tensor_parallel_size": 1,
     "gpu_memory_utilization": 0.90,

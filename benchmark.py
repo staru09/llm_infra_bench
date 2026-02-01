@@ -39,7 +39,7 @@ Examples:
     parser.add_argument(
         "--dataset", 
         type=str, 
-        default="benchmark_dataset.json",
+        default="sharegpt_data.json",
         help="Path to dataset JSON file"
     )
     
