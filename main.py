@@ -260,7 +260,8 @@ async def main(args):
         print(f"Temperature:    Mean: {gpu_metrics.temp_mean_c:.1f}C | Max: {gpu_metrics.temp_max_c:.1f}C")
 
     # Save Results - organized by backend/model-concurrency
-    model_short = get_model_short_name(MODEL_NAME)
+    model_name = getattr(args, 'model', MODEL_NAME) or MODEL_NAME
+    model_short = get_model_short_name(model_name)
     output_dir = f"results/{args.backend}/{model_short}-concurrency-{args.concurrency}"
     save_results_json(final_stats, valid_results, gpu_metrics, gpu_samples, args, total_duration, output_dir)
     save_results_csv(final_stats, valid_results, gpu_metrics, args, total_duration, output_dir)
@@ -269,9 +270,10 @@ async def main(args):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="LLM Inference Benchmark Client")
     parser.add_argument("--url", type=str, default="http://localhost:8000")
-    parser.add_argument("--dataset", type=str, default="benchmark_dataset.json")
+    parser.add_argument("--dataset", type=str, default="sharegpt_data.json")
     parser.add_argument("--concurrency", type=int, default=10)
     parser.add_argument("--backend", type=str, default="unknown")
+    parser.add_argument("--model", type=str, default=MODEL_NAME, help="Model name for result organization")
     parser.add_argument("--output", type=str, default="results", help="Directory to save results (JSON + CSV)")
     args = parser.parse_args()
     asyncio.run(main(args))

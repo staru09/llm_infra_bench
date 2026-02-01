@@ -36,11 +36,15 @@ def wait_for_server(url, timeout=300):
     return False
 
 
-def run_benchmark(concurrency=20, dataset="benchmark_dataset.json"):
+def run_benchmark(concurrency=20, dataset="sharegpt_data.json", model=None):
     """Start vLLM server and run benchmark."""
+    
+    # Use provided model or fallback to CONFIG
+    model_path = model if model else CONFIG["model"]
+    
     cmd = [
         sys.executable, "-m", "vllm.entrypoints.openai.api_server",
-        "--model", CONFIG["model"],
+        "--model", model_path,
         "--port", str(CONFIG["port"]),
         "--tensor-parallel-size", str(CONFIG["tensor_parallel_size"]),
         "--gpu-memory-utilization", str(CONFIG["gpu_memory_utilization"]),
@@ -62,7 +66,8 @@ def run_benchmark(concurrency=20, dataset="benchmark_dataset.json"):
             "--url", server_url,
             "--backend", "vllm",
             "--concurrency", str(concurrency),
-            "--dataset", dataset
+            "--dataset", dataset,
+            "--model", model_path
         ], check=True)
 
     except Exception as e:
@@ -74,4 +79,11 @@ def run_benchmark(concurrency=20, dataset="benchmark_dataset.json"):
 
 
 if __name__ == "__main__":
-    run_benchmark()
+    import argparse
+    parser = argparse.ArgumentParser(description="vLLM Benchmark Runner")
+    parser.add_argument("--concurrency", type=int, default=20)
+    parser.add_argument("--dataset", type=str, default="sharegpt_data.json")
+    parser.add_argument("--model", type=str, default=None, help="Model path (default: from CONFIG)")
+    args = parser.parse_args()
+    
+    run_benchmark(concurrency=args.concurrency, dataset=args.dataset, model=args.model)

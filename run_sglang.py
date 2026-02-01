@@ -186,16 +186,19 @@ async def run_benchmark_async(llm, dataset, concurrency):
     return await asyncio.gather(*tasks)
 
 
-def run_benchmark(concurrency=20, dataset_path="sharegpt_data.json"):
+def run_benchmark(concurrency=20, dataset="sharegpt_data.json", model=None):
     """Main benchmark function using SGLang offline engine."""
     
-    print(f"[LOAD] Loading dataset: {dataset_path}")
-    with open(dataset_path, 'r') as f:
-        dataset = json.load(f)
+    # Use provided model or fallback to CONFIG
+    model_path = model if model else CONFIG["model_path"]
     
-    print(f"[INIT] Initializing SGLang Engine with {CONFIG['model_path']}...")
+    print(f"[LOAD] Loading dataset: {dataset}")
+    with open(dataset, 'r') as f:
+        dataset_items = json.load(f)
+    
+    print(f"[INIT] Initializing SGLang Engine with {model_path}...")
     llm = sgl.Engine(
-        model_path=CONFIG["model_path"],
+        model_path=model_path,
         tp_size=CONFIG["tp_size"],
         mem_fraction_static=CONFIG["mem_fraction_static"],
     )
@@ -206,10 +209,10 @@ def run_benchmark(concurrency=20, dataset_path="sharegpt_data.json"):
         gpu_monitor.start()
         
         print(f"[RUN] Starting benchmark with {concurrency} concurrent requests...")
-        print(f"[RUN] Total requests: {len(dataset)}")
+        print(f"[RUN] Total requests: {len(dataset_items)}")
         
         start_time = time.perf_counter()
-        results = asyncio.run(run_benchmark_async(llm, dataset, concurrency))
+        results = asyncio.run(run_benchmark_async(llm, dataset_items, concurrency))
         total_duration = time.perf_counter() - start_time
         
         # Stop GPU monitoring
@@ -220,6 +223,7 @@ def run_benchmark(concurrency=20, dataset_path="sharegpt_data.json"):
         # Filter valid results and calculate metrics
         valid_results = [r for r in results if r is not None]
         final_stats = MetricsCalculator.aggregate(valid_results, total_duration)
+        dataset_path = dataset  # For saving results
         
         # Print results
         print(f"\n=== RESULTS FOR sglang ===")
@@ -239,7 +243,7 @@ def run_benchmark(concurrency=20, dataset_path="sharegpt_data.json"):
             print(f"Temperature:    Mean: {gpu_metrics.temp_mean_c:.1f}C | Max: {gpu_metrics.temp_max_c:.1f}C")
         
         # Save results
-        model_short = get_model_short_name(CONFIG["model_path"])
+        model_short = get_model_short_name(model_path)
         output_dir = f"results/sglang/{model_short}-concurrency-{concurrency}"
         
         save_results(final_stats, valid_results, gpu_metrics, gpu_samples,
@@ -255,6 +259,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="SGLang Offline Benchmark")
     parser.add_argument("--concurrency", type=int, default=20)
     parser.add_argument("--dataset", type=str, default="sharegpt_data.json")
+    parser.add_argument("--model", type=str, default=None, help="Model path (default: from CONFIG)")
     args = parser.parse_args()
     
-    run_benchmark(concurrency=args.concurrency, dataset_path=args.dataset)
+    run_benchmark(concurrency=args.concurrency, dataset=args.dataset, model=args.model)
