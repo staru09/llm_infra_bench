@@ -16,7 +16,7 @@ from metrics import RequestMetrics, MetricsCalculator, BenchmarkResults
 from gpu_monitor import GPUMonitor, GPUMetrics
 
 CONFIG = {
-    "model_path": "meta-llama/Llama-3.1-8B-Instruct",
+    "model_path": "Qwen/Qwen3-8B",
     "mem_fraction_static": 0.85,
     "tp_size": 1,
 }
