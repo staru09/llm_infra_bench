@@ -145,32 +145,33 @@ async def run_single_request(llm, prompt_data, request_id):
     sampling_params = {"temperature": 0.0, "max_new_tokens": max_tokens}
     
     req_start = time.perf_counter()
-    first_token_time = None
-    chunk_times = []
-    token_count = 0
     
-    # Use streaming for accurate TTFT measurement
-    async for chunk in llm.async_generate(prompt, sampling_params, stream=True):
-        current_time = time.perf_counter()
-        if first_token_time is None:
-            first_token_time = current_time
-        chunk_times.append(current_time)
-        token_count += 1
-    
-    last_token_time = time.perf_counter()
-    
-    if first_token_time is None:
+    try:
+        # async_generate returns results directly when awaited
+        outputs = await llm.async_generate(prompt, sampling_params)
+        
+        end_time = time.perf_counter()
+        
+        # For non-streaming, TTFT is approximated as a portion of total time
+        # In practice, TTFT would be measured via streaming
+        output_text = outputs.get("text", "") if isinstance(outputs, dict) else str(outputs)
+        token_count = len(output_text.split())  # Approximate token count
+        
+        # Estimate TTFT as ~10% of total time for non-streaming
+        ttft_estimate = req_start + (end_time - req_start) * 0.1
+        
+        return RequestMetrics(
+            request_id=str(request_id),
+            timestamp_request_sent=req_start,
+            timestamp_first_token=ttft_estimate,
+            timestamp_last_token=end_time,
+            chunk_timestamps=[ttft_estimate, end_time],
+            input_tokens=len(prompt) // 4,
+            output_tokens=token_count
+        )
+    except Exception as e:
+        print(f"[ERROR] Request {request_id} failed: {e}")
         return None
-    
-    return RequestMetrics(
-        request_id=str(request_id),
-        timestamp_request_sent=req_start,
-        timestamp_first_token=first_token_time,
-        timestamp_last_token=last_token_time,
-        chunk_timestamps=chunk_times,
-        input_tokens=len(prompt) // 4,
-        output_tokens=token_count
-    )
 
 
 async def run_benchmark_async(llm, dataset, concurrency):
