@@ -24,10 +24,19 @@ def wait_for_server(url, timeout=300):
     start = time.time()
     while time.time() - start < timeout:
         try:
-            requests.get(f"{url}/v1/models")
-            print("[OK] SGLang Server is ready")
-            return True
-        except requests.exceptions.ConnectionError:
+            resp = requests.get(f"{url}/health", timeout=5)
+            if resp.status_code == 200:
+                print("[OK] SGLang Server is ready")
+                return True
+        except requests.exceptions.RequestException:
+            pass
+        
+        try:
+            resp = requests.get(f"{url}/v1/models", timeout=5)
+            if resp.status_code == 200:
+                print("[OK] SGLang Server is ready")
+                return True
+        except requests.exceptions.RequestException:
             elapsed = int(time.time() - start)
             print(f"[WAIT] SGLang starting... ({elapsed}s)")
             time.sleep(2)
@@ -45,11 +54,17 @@ def run_benchmark(concurrency=20, dataset="benchmark_dataset.json"):
     ] + CONFIG["extra_args"]
 
     print(f"[START] Launching SGLang: {' '.join(cmd)}")
-    process = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+    process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
 
     try:
         server_url = f"http://localhost:{CONFIG['port']}"
         if not wait_for_server(server_url):
+            # Print server output for debugging
+            print("[ERROR] Server startup timeout. Checking server output...")
+            process.terminate()
+            output, _ = process.communicate(timeout=5)
+            if output:
+                print(output.decode('utf-8', errors='ignore')[-2000:])  # Last 2000 chars
             raise TimeoutError("Server failed to start within timeout")
 
         print("[RUN] Starting Benchmark...")
