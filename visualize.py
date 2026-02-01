@@ -2,6 +2,8 @@
 Benchmark Results Visualization Script
 Generates charts and plots from benchmark results.
 
+Supports multiple models and backends comparison.
+
 Usage:
     python visualize.py                    # Generate all plots
     python visualize.py --output plots/    # Custom output directory
@@ -19,10 +21,17 @@ import numpy as np
 
 # Style settings
 plt.style.use('seaborn-v0_8-whitegrid')
-COLORS = {
+BACKEND_COLORS = {
     'vllm': '#1f77b4',      # Blue
     'sglang': '#ff7f0e',    # Orange
-    'llamacpp': '#2ca02c',  # Green
+}
+MODEL_MARKERS = {
+    'Llama-3.1-8B-Instruct': 'o',
+    'Qwen3-8B': 's',
+}
+LINESTYLES = {
+    'vllm': '-',
+    'sglang': '--',
 }
 
 
@@ -35,12 +44,16 @@ def load_all_results(results_dir="results"):
         if not os.path.exists(backend_dir):
             continue
             
-        # Find all concurrency directories
+        # Find all model-concurrency directories
         for conc_dir in glob.glob(os.path.join(backend_dir, "*-concurrency-*")):
-            # Extract concurrency from directory name
+            dir_name = os.path.basename(conc_dir)
+            
+            # Extract model name and concurrency
             try:
-                concurrency = int(conc_dir.split("-concurrency-")[-1])
-            except ValueError:
+                parts = dir_name.rsplit("-concurrency-", 1)
+                model_name = parts[0]
+                concurrency = int(parts[1])
+            except (ValueError, IndexError):
                 continue
             
             # Load summary CSV
@@ -48,8 +61,9 @@ def load_all_results(results_dir="results"):
             if summary_files:
                 df = pd.read_csv(summary_files[0])
                 if len(df) > 0:
-                    row = df.iloc[-1].to_dict()  # Get last row (most recent)
+                    row = df.iloc[-1].to_dict()
                     row['backend'] = backend
+                    row['model'] = model_name
                     row['concurrency'] = concurrency
                     row['dir'] = conc_dir
                     data.append(row)
@@ -64,341 +78,345 @@ def load_all_results(results_dir="results"):
     return pd.DataFrame(data)
 
 
-def plot_throughput_comparison(df, output_dir):
-    """Line chart: System TPS vs Concurrency by backend."""
-    fig, ax = plt.subplots(figsize=(10, 6))
+def plot_throughput_by_model(df, output_dir):
+    """Line chart: TPS vs Concurrency, grouped by model with backend comparison."""
+    models = df['model'].unique()
     
-    for backend in df['backend'].unique():
-        backend_df = df[df['backend'] == backend].sort_values('concurrency')
-        ax.plot(
-            backend_df['concurrency'], 
-            backend_df['system_tps'],
-            marker='o', 
-            linewidth=2,
-            markersize=8,
-            label=backend.upper(),
-            color=COLORS.get(backend, '#333333')
-        )
-    
-    ax.set_xlabel('Concurrency', fontsize=12)
-    ax.set_ylabel('Throughput (Tokens/sec)', fontsize=12)
-    ax.set_title('System Throughput vs Concurrency', fontsize=14, fontweight='bold')
-    ax.legend(fontsize=11)
-    ax.xaxis.set_major_locator(ticker.MultipleLocator(20))
-    ax.grid(True, alpha=0.3)
-    
-    plt.tight_layout()
-    plt.savefig(os.path.join(output_dir, 'throughput_comparison.png'), dpi=150)
-    plt.close()
-    print(f"[SAVED] throughput_comparison.png")
+    for model in models:
+        fig, ax = plt.subplots(figsize=(10, 6))
+        model_df = df[df['model'] == model]
+        
+        for backend in model_df['backend'].unique():
+            backend_df = model_df[model_df['backend'] == backend].sort_values('concurrency')
+            ax.plot(
+                backend_df['concurrency'], 
+                backend_df['system_tps'],
+                marker=MODEL_MARKERS.get(model, 'o'),
+                linewidth=2,
+                markersize=8,
+                linestyle=LINESTYLES.get(backend, '-'),
+                label=backend.upper(),
+                color=BACKEND_COLORS.get(backend, '#333')
+            )
+        
+        ax.set_xlabel('Concurrency', fontsize=12)
+        ax.set_ylabel('Throughput (Tokens/sec)', fontsize=12)
+        ax.set_title(f'{model} - Throughput vs Concurrency', fontsize=14, fontweight='bold')
+        ax.legend(fontsize=11)
+        ax.xaxis.set_major_locator(ticker.MultipleLocator(20))
+        ax.grid(True, alpha=0.3)
+        
+        plt.tight_layout()
+        safe_name = model.replace('/', '_').replace('.', '_')
+        plt.savefig(os.path.join(output_dir, f'throughput_{safe_name}.png'), dpi=150)
+        plt.close()
+        print(f"[SAVED] throughput_{safe_name}.png")
 
 
-def plot_latency_comparison(df, output_dir):
-    """Line chart: TTFT and E2E latency vs Concurrency."""
-    fig, axes = plt.subplots(1, 2, figsize=(14, 5))
+def plot_cross_model_comparison(df, output_dir):
+    """Bar chart: Compare models side-by-side for each backend at max concurrency."""
+    fig, axes = plt.subplots(1, 2, figsize=(14, 6))
     
-    # TTFT Plot
+    # Get max concurrency for each model-backend combo
+    max_conc = df.groupby(['backend', 'model'])['concurrency'].max().reset_index()
+    summary = df.merge(max_conc, on=['backend', 'model', 'concurrency'])
+    
+    models = sorted(df['model'].unique())
+    backends = sorted(df['backend'].unique())
+    x = np.arange(len(backends))
+    width = 0.35
+    
+    # TPS Comparison
     ax1 = axes[0]
-    for backend in df['backend'].unique():
-        backend_df = df[df['backend'] == backend].sort_values('concurrency')
-        ax1.plot(
-            backend_df['concurrency'], 
-            backend_df['ttft_mean_ms'],
-            marker='o', 
-            linewidth=2,
-            markersize=8,
-            label=backend.upper(),
-            color=COLORS.get(backend, '#333333')
-        )
-    
-    ax1.set_xlabel('Concurrency', fontsize=12)
-    ax1.set_ylabel('TTFT (ms)', fontsize=12)
-    ax1.set_title('Time to First Token (Mean)', fontsize=14, fontweight='bold')
-    ax1.legend(fontsize=11)
-    ax1.grid(True, alpha=0.3)
-    
-    # E2E Plot
-    ax2 = axes[1]
-    for backend in df['backend'].unique():
-        backend_df = df[df['backend'] == backend].sort_values('concurrency')
-        ax2.plot(
-            backend_df['concurrency'], 
-            backend_df['e2e_mean_ms'] / 1000,  # Convert to seconds
-            marker='s', 
-            linewidth=2,
-            markersize=8,
-            label=backend.upper(),
-            color=COLORS.get(backend, '#333333')
-        )
-    
-    ax2.set_xlabel('Concurrency', fontsize=12)
-    ax2.set_ylabel('E2E Latency (seconds)', fontsize=12)
-    ax2.set_title('End-to-End Latency (Mean)', fontsize=14, fontweight='bold')
-    ax2.legend(fontsize=11)
-    ax2.grid(True, alpha=0.3)
-    
-    plt.tight_layout()
-    plt.savefig(os.path.join(output_dir, 'latency_comparison.png'), dpi=150)
-    plt.close()
-    print(f"[SAVED] latency_comparison.png")
-
-
-def plot_duration_comparison(df, output_dir):
-    """Bar chart: Total benchmark duration by backend and concurrency."""
-    fig, ax = plt.subplots(figsize=(12, 6))
-    
-    backends = df['backend'].unique()
-    concurrencies = sorted(df['concurrency'].unique())
-    x = np.arange(len(concurrencies))
-    width = 0.35 / len(backends) * 2
-    
-    for i, backend in enumerate(backends):
-        backend_df = df[df['backend'] == backend].sort_values('concurrency')
-        durations = []
-        for conc in concurrencies:
-            row = backend_df[backend_df['concurrency'] == conc]
-            durations.append(row['duration_sec'].values[0] if len(row) > 0 else 0)
+    for i, model in enumerate(models):
+        values = []
+        for backend in backends:
+            row = summary[(summary['backend'] == backend) & (summary['model'] == model)]
+            values.append(row['system_tps'].values[0] if len(row) > 0 else 0)
         
-        offset = (i - len(backends)/2 + 0.5) * width
-        bars = ax.bar(x + offset, durations, width, label=backend.upper(), 
-                      color=COLORS.get(backend, '#333333'), alpha=0.8)
+        offset = (i - len(models)/2 + 0.5) * width
+        bars = ax1.bar(x + offset, values, width, label=model, alpha=0.8)
         
-        # Add value labels on bars
-        for bar, val in zip(bars, durations):
+        for bar, val in zip(bars, values):
             if val > 0:
-                ax.annotate(f'{val:.1f}s',
+                ax1.annotate(f'{val:.0f}',
                            xy=(bar.get_x() + bar.get_width()/2, bar.get_height()),
                            xytext=(0, 3), textcoords="offset points",
                            ha='center', va='bottom', fontsize=9)
     
-    ax.set_xlabel('Concurrency', fontsize=12)
-    ax.set_ylabel('Duration (seconds)', fontsize=12)
-    ax.set_title('Benchmark Duration by Concurrency', fontsize=14, fontweight='bold')
-    ax.set_xticks(x)
-    ax.set_xticklabels(concurrencies)
-    ax.legend(fontsize=11)
-    ax.grid(True, alpha=0.3, axis='y')
-    
-    plt.tight_layout()
-    plt.savefig(os.path.join(output_dir, 'duration_comparison.png'), dpi=150)
-    plt.close()
-    print(f"[SAVED] duration_comparison.png")
-
-
-def plot_gpu_utilization(df, output_dir):
-    """Bar chart: GPU utilization comparison."""
-    fig, axes = plt.subplots(1, 2, figsize=(14, 5))
-    
-    backends = df['backend'].unique()
-    concurrencies = sorted(df['concurrency'].unique())
-    x = np.arange(len(concurrencies))
-    width = 0.35 / len(backends) * 2
-    
-    # GPU Utilization
-    ax1 = axes[0]
-    for i, backend in enumerate(backends):
-        backend_df = df[df['backend'] == backend].sort_values('concurrency')
-        values = []
-        for conc in concurrencies:
-            row = backend_df[backend_df['concurrency'] == conc]
-            values.append(row['gpu_util_mean'].values[0] if len(row) > 0 else 0)
-        
-        offset = (i - len(backends)/2 + 0.5) * width
-        ax1.bar(x + offset, values, width, label=backend.upper(), 
-                color=COLORS.get(backend, '#333333'), alpha=0.8)
-    
-    ax1.set_xlabel('Concurrency', fontsize=12)
-    ax1.set_ylabel('GPU Utilization (%)', fontsize=12)
-    ax1.set_title('Mean GPU Utilization', fontsize=14, fontweight='bold')
+    ax1.set_xlabel('Backend', fontsize=12)
+    ax1.set_ylabel('Throughput (TPS)', fontsize=12)
+    ax1.set_title('Peak Throughput by Model & Backend', fontsize=14, fontweight='bold')
     ax1.set_xticks(x)
-    ax1.set_xticklabels(concurrencies)
-    ax1.set_ylim(0, 105)
-    ax1.legend(fontsize=11)
+    ax1.set_xticklabels([b.upper() for b in backends])
+    ax1.legend(fontsize=10)
     ax1.grid(True, alpha=0.3, axis='y')
     
-    # Power Draw
+    # Duration Comparison
     ax2 = axes[1]
-    for i, backend in enumerate(backends):
-        backend_df = df[df['backend'] == backend].sort_values('concurrency')
+    for i, model in enumerate(models):
         values = []
-        for conc in concurrencies:
-            row = backend_df[backend_df['concurrency'] == conc]
-            values.append(row['power_mean_w'].values[0] if len(row) > 0 else 0)
+        for backend in backends:
+            row = summary[(summary['backend'] == backend) & (summary['model'] == model)]
+            values.append(row['duration_sec'].values[0] if len(row) > 0 else 0)
         
-        offset = (i - len(backends)/2 + 0.5) * width
-        ax2.bar(x + offset, values, width, label=backend.upper(), 
-                color=COLORS.get(backend, '#333333'), alpha=0.8)
+        offset = (i - len(models)/2 + 0.5) * width
+        bars = ax2.bar(x + offset, values, width, label=model, alpha=0.8)
+        
+        for bar, val in zip(bars, values):
+            if val > 0:
+                ax2.annotate(f'{val:.1f}s',
+                           xy=(bar.get_x() + bar.get_width()/2, bar.get_height()),
+                           xytext=(0, 3), textcoords="offset points",
+                           ha='center', va='bottom', fontsize=9)
     
-    ax2.set_xlabel('Concurrency', fontsize=12)
-    ax2.set_ylabel('Power (Watts)', fontsize=12)
-    ax2.set_title('Mean Power Consumption', fontsize=14, fontweight='bold')
+    ax2.set_xlabel('Backend', fontsize=12)
+    ax2.set_ylabel('Duration (seconds)', fontsize=12)
+    ax2.set_title('Peak Concurrency Duration by Model & Backend', fontsize=14, fontweight='bold')
     ax2.set_xticks(x)
-    ax2.set_xticklabels(concurrencies)
-    ax2.legend(fontsize=11)
+    ax2.set_xticklabels([b.upper() for b in backends])
+    ax2.legend(fontsize=10)
     ax2.grid(True, alpha=0.3, axis='y')
     
     plt.tight_layout()
-    plt.savefig(os.path.join(output_dir, 'gpu_utilization.png'), dpi=150)
+    plt.savefig(os.path.join(output_dir, 'cross_model_comparison.png'), dpi=150)
     plt.close()
-    print(f"[SAVED] gpu_utilization.png")
+    print(f"[SAVED] cross_model_comparison.png")
 
 
-def plot_per_request_histogram(df, output_dir):
-    """Histogram: Per-request latency distribution."""
-    fig, axes = plt.subplots(1, 2, figsize=(14, 5))
+def plot_all_throughput_combined(df, output_dir):
+    """Line chart: All models and backends on one chart."""
+    fig, ax = plt.subplots(figsize=(12, 7))
     
-    # Find the highest concurrency for each backend
-    for ax, metric, title in [
-        (axes[0], 'ttft_ms', 'TTFT Distribution (Highest Concurrency)'),
-        (axes[1], 'e2e_ms', 'E2E Latency Distribution (Highest Concurrency)')
-    ]:
-        for backend in df['backend'].unique():
-            backend_df = df[df['backend'] == backend]
-            if len(backend_df) == 0:
+    for backend in df['backend'].unique():
+        for model in df['model'].unique():
+            subset = df[(df['backend'] == backend) & (df['model'] == model)]
+            if len(subset) == 0:
                 continue
+            subset = subset.sort_values('concurrency')
             
-            # Get highest concurrency row
-            max_conc_row = backend_df.loc[backend_df['concurrency'].idxmax()]
-            
-            if 'json_data' in max_conc_row and max_conc_row['json_data']:
-                per_request = max_conc_row['json_data'].get('per_request', [])
-                if per_request:
-                    values = [r[metric] for r in per_request if metric in r]
-                    if values:
-                        ax.hist(values, bins=30, alpha=0.6, 
-                               label=f"{backend.upper()} (n={len(values)})",
-                               color=COLORS.get(backend, '#333333'))
-        
-        ax.set_xlabel('Latency (ms)', fontsize=12)
-        ax.set_ylabel('Frequency', fontsize=12)
-        ax.set_title(title, fontsize=14, fontweight='bold')
-        ax.legend(fontsize=11)
-        ax.grid(True, alpha=0.3)
+            label = f"{backend.upper()} - {model}"
+            ax.plot(
+                subset['concurrency'],
+                subset['system_tps'],
+                marker=MODEL_MARKERS.get(model, 'o'),
+                linewidth=2,
+                markersize=8,
+                linestyle=LINESTYLES.get(backend, '-'),
+                label=label,
+                color=BACKEND_COLORS.get(backend, '#333')
+            )
+    
+    ax.set_xlabel('Concurrency', fontsize=12)
+    ax.set_ylabel('Throughput (Tokens/sec)', fontsize=12)
+    ax.set_title('All Models & Backends - Throughput Comparison', fontsize=14, fontweight='bold')
+    ax.legend(fontsize=10, loc='upper left')
+    ax.xaxis.set_major_locator(ticker.MultipleLocator(20))
+    ax.grid(True, alpha=0.3)
     
     plt.tight_layout()
-    plt.savefig(os.path.join(output_dir, 'latency_histogram.png'), dpi=150)
+    plt.savefig(os.path.join(output_dir, 'throughput_all_combined.png'), dpi=150)
     plt.close()
-    print(f"[SAVED] latency_histogram.png")
+    print(f"[SAVED] throughput_all_combined.png")
 
 
-def plot_gpu_timeseries(df, output_dir):
-    """Line chart: GPU metrics over time (from gpu_samples)."""
+def plot_latency_heatmap(df, output_dir):
+    """Heatmap: E2E latency across models, backends, and concurrency."""
+    models = sorted(df['model'].unique())
+    backends = sorted(df['backend'].unique())
+    concurrencies = sorted(df['concurrency'].unique())
+    
+    fig, axes = plt.subplots(1, len(backends), figsize=(7*len(backends), 6))
+    if len(backends) == 1:
+        axes = [axes]
+    
+    for ax, backend in zip(axes, backends):
+        # Create matrix: rows=models, cols=concurrency
+        matrix = np.zeros((len(models), len(concurrencies)))
+        
+        for i, model in enumerate(models):
+            for j, conc in enumerate(concurrencies):
+                row = df[(df['backend'] == backend) & 
+                        (df['model'] == model) & 
+                        (df['concurrency'] == conc)]
+                if len(row) > 0:
+                    matrix[i, j] = row['e2e_mean_ms'].values[0] / 1000  # Convert to seconds
+        
+        im = ax.imshow(matrix, cmap='RdYlGn_r', aspect='auto')
+        
+        ax.set_xticks(np.arange(len(concurrencies)))
+        ax.set_yticks(np.arange(len(models)))
+        ax.set_xticklabels(concurrencies)
+        ax.set_yticklabels(models)
+        ax.set_xlabel('Concurrency')
+        ax.set_title(f'{backend.upper()} - E2E Latency (seconds)', fontweight='bold')
+        
+        # Add value annotations
+        for i in range(len(models)):
+            for j in range(len(concurrencies)):
+                if matrix[i, j] > 0:
+                    ax.text(j, i, f'{matrix[i, j]:.1f}', ha='center', va='center', 
+                           color='white' if matrix[i, j] > matrix.max()/2 else 'black', fontsize=10)
+        
+        plt.colorbar(im, ax=ax, label='Latency (s)')
+    
+    plt.tight_layout()
+    plt.savefig(os.path.join(output_dir, 'latency_heatmap.png'), dpi=150)
+    plt.close()
+    print(f"[SAVED] latency_heatmap.png")
+
+
+def plot_gpu_comparison(df, output_dir):
+    """Grouped bar chart: GPU utilization and power by model and backend."""
+    fig, axes = plt.subplots(1, 2, figsize=(14, 6))
+    
+    # Use max concurrency data
+    max_conc = df.groupby(['backend', 'model'])['concurrency'].max().reset_index()
+    summary = df.merge(max_conc, on=['backend', 'model', 'concurrency'])
+    
+    models = sorted(df['model'].unique())
+    backends = sorted(df['backend'].unique())
+    
+    # Create labels: "Backend - Model"
+    labels = []
+    gpu_utils = []
+    powers = []
+    colors = []
+    
+    for backend in backends:
+        for model in models:
+            row = summary[(summary['backend'] == backend) & (summary['model'] == model)]
+            if len(row) > 0:
+                labels.append(f"{backend.upper()}\n{model[:10]}...")
+                gpu_utils.append(row['gpu_util_mean'].values[0])
+                powers.append(row['power_mean_w'].values[0])
+                colors.append(BACKEND_COLORS.get(backend, '#333'))
+    
+    x = np.arange(len(labels))
+    
+    # GPU Utilization
+    ax1 = axes[0]
+    bars1 = ax1.bar(x, gpu_utils, color=colors, alpha=0.8)
+    ax1.set_xlabel('Backend - Model', fontsize=12)
+    ax1.set_ylabel('GPU Utilization (%)', fontsize=12)
+    ax1.set_title('Peak GPU Utilization', fontsize=14, fontweight='bold')
+    ax1.set_xticks(x)
+    ax1.set_xticklabels(labels, fontsize=9)
+    ax1.set_ylim(0, 105)
+    ax1.axhline(y=100, color='red', linestyle='--', alpha=0.5, label='100%')
+    ax1.grid(True, alpha=0.3, axis='y')
+    
+    for bar, val in zip(bars1, gpu_utils):
+        ax1.annotate(f'{val:.0f}%', xy=(bar.get_x() + bar.get_width()/2, bar.get_height()),
+                    xytext=(0, 3), textcoords="offset points", ha='center', fontsize=9)
+    
+    # Power Draw
+    ax2 = axes[1]
+    bars2 = ax2.bar(x, powers, color=colors, alpha=0.8)
+    ax2.set_xlabel('Backend - Model', fontsize=12)
+    ax2.set_ylabel('Power (Watts)', fontsize=12)
+    ax2.set_title('Peak Power Consumption', fontsize=14, fontweight='bold')
+    ax2.set_xticks(x)
+    ax2.set_xticklabels(labels, fontsize=9)
+    ax2.grid(True, alpha=0.3, axis='y')
+    
+    for bar, val in zip(bars2, powers):
+        ax2.annotate(f'{val:.0f}W', xy=(bar.get_x() + bar.get_width()/2, bar.get_height()),
+                    xytext=(0, 3), textcoords="offset points", ha='center', fontsize=9)
+    
+    plt.tight_layout()
+    plt.savefig(os.path.join(output_dir, 'gpu_comparison.png'), dpi=150)
+    plt.close()
+    print(f"[SAVED] gpu_comparison.png")
+
+
+def plot_scaling_efficiency(df, output_dir):
+    """Line chart: TPS per unit concurrency (efficiency) across scaling."""
+    fig, ax = plt.subplots(figsize=(12, 7))
+    
     for backend in df['backend'].unique():
-        backend_df = df[df['backend'] == backend]
-        if len(backend_df) == 0:
-            continue
-        
-        # Get highest concurrency row with json_data
-        max_conc_row = backend_df.loc[backend_df['concurrency'].idxmax()]
-        
-        if 'json_data' not in max_conc_row or not max_conc_row['json_data']:
-            continue
+        for model in df['model'].unique():
+            subset = df[(df['backend'] == backend) & (df['model'] == model)]
+            if len(subset) == 0:
+                continue
+            subset = subset.sort_values('concurrency')
             
-        gpu_samples = max_conc_row['json_data'].get('gpu_samples', [])
-        if not gpu_samples:
-            continue
-        
-        fig, axes = plt.subplots(2, 2, figsize=(14, 10))
-        
-        timestamps = [s.get('elapsed_sec', i) for i, s in enumerate(gpu_samples)]
-        
-        # GPU Utilization
-        ax1 = axes[0, 0]
-        values = [s.get('gpu_util', 0) for s in gpu_samples]
-        ax1.plot(timestamps, values, color=COLORS.get(backend, '#333333'), linewidth=1)
-        ax1.fill_between(timestamps, values, alpha=0.3, color=COLORS.get(backend, '#333333'))
-        ax1.set_xlabel('Time (s)')
-        ax1.set_ylabel('GPU Util (%)')
-        ax1.set_title('GPU Utilization Over Time')
-        ax1.set_ylim(0, 105)
-        
-        # Memory
-        ax2 = axes[0, 1]
-        values = [s.get('memory_used_mb', 0) / 1024 for s in gpu_samples]  # Convert to GB
-        ax2.plot(timestamps, values, color=COLORS.get(backend, '#333333'), linewidth=1)
-        ax2.fill_between(timestamps, values, alpha=0.3, color=COLORS.get(backend, '#333333'))
-        ax2.set_xlabel('Time (s)')
-        ax2.set_ylabel('Memory (GB)')
-        ax2.set_title('GPU Memory Usage Over Time')
-        
-        # Power
-        ax3 = axes[1, 0]
-        values = [s.get('power_watts', 0) for s in gpu_samples]
-        ax3.plot(timestamps, values, color=COLORS.get(backend, '#333333'), linewidth=1)
-        ax3.fill_between(timestamps, values, alpha=0.3, color=COLORS.get(backend, '#333333'))
-        ax3.set_xlabel('Time (s)')
-        ax3.set_ylabel('Power (W)')
-        ax3.set_title('Power Consumption Over Time')
-        
-        # Temperature
-        ax4 = axes[1, 1]
-        values = [s.get('temp_c', 0) for s in gpu_samples]
-        ax4.plot(timestamps, values, color=COLORS.get(backend, '#333333'), linewidth=1)
-        ax4.fill_between(timestamps, values, alpha=0.3, color=COLORS.get(backend, '#333333'))
-        ax4.set_xlabel('Time (s)')
-        ax4.set_ylabel('Temperature (°C)')
-        ax4.set_title('GPU Temperature Over Time')
-        
-        fig.suptitle(f'{backend.upper()} - GPU Metrics (Concurrency {int(max_conc_row["concurrency"])})', 
-                    fontsize=14, fontweight='bold')
-        plt.tight_layout()
-        plt.savefig(os.path.join(output_dir, f'gpu_timeseries_{backend}.png'), dpi=150)
-        plt.close()
-        print(f"[SAVED] gpu_timeseries_{backend}.png")
+            # Calculate efficiency: TPS / Concurrency
+            efficiency = subset['system_tps'] / subset['concurrency']
+            
+            label = f"{backend.upper()} - {model}"
+            ax.plot(
+                subset['concurrency'],
+                efficiency,
+                marker=MODEL_MARKERS.get(model, 'o'),
+                linewidth=2,
+                markersize=8,
+                linestyle=LINESTYLES.get(backend, '-'),
+                label=label,
+                color=BACKEND_COLORS.get(backend, '#333')
+            )
+    
+    ax.set_xlabel('Concurrency', fontsize=12)
+    ax.set_ylabel('Efficiency (TPS / Concurrency)', fontsize=12)
+    ax.set_title('Scaling Efficiency - TPS per Concurrent Request', fontsize=14, fontweight='bold')
+    ax.legend(fontsize=10, loc='upper right')
+    ax.xaxis.set_major_locator(ticker.MultipleLocator(20))
+    ax.grid(True, alpha=0.3)
+    
+    plt.tight_layout()
+    plt.savefig(os.path.join(output_dir, 'scaling_efficiency.png'), dpi=150)
+    plt.close()
+    print(f"[SAVED] scaling_efficiency.png")
 
 
 def plot_summary_table(df, output_dir):
-    """Generate a summary comparison table as an image."""
-    # Prepare data for table
-    backends = df['backend'].unique()
-    concurrencies = sorted(df['concurrency'].unique())
+    """Generate a comprehensive summary table as an image."""
+    # Get max concurrency for each combo
+    max_conc = df.groupby(['backend', 'model'])['concurrency'].max().reset_index()
+    summary = df.merge(max_conc, on=['backend', 'model', 'concurrency'])
+    summary = summary.sort_values(['model', 'backend'])
     
-    metrics = ['system_tps', 'duration_sec', 'ttft_mean_ms', 'e2e_mean_ms', 'gpu_util_mean']
-    metric_labels = ['TPS', 'Duration (s)', 'TTFT (ms)', 'E2E (ms)', 'GPU Util (%)']
-    
-    fig, ax = plt.subplots(figsize=(14, len(backends) * len(concurrencies) * 0.5 + 2))
+    fig, ax = plt.subplots(figsize=(16, len(summary) * 0.6 + 2))
     ax.axis('off')
     
-    # Build table data
+    # Build table
+    headers = ['Model', 'Backend', 'Conc', 'TPS', 'Duration', 'E2E (s)', 'GPU %', 'Power (W)']
     table_data = []
-    row_labels = []
     
-    for backend in backends:
-        for conc in concurrencies:
-            row = df[(df['backend'] == backend) & (df['concurrency'] == conc)]
-            if len(row) > 0:
-                row = row.iloc[0]
-                row_labels.append(f"{backend.upper()} @ {conc}")
-                table_data.append([
-                    f"{row['system_tps']:.0f}",
-                    f"{row['duration_sec']:.1f}",
-                    f"{row['ttft_mean_ms']:.0f}",
-                    f"{row['e2e_mean_ms']:.0f}",
-                    f"{row['gpu_util_mean']:.1f}%"
-                ])
+    for _, row in summary.iterrows():
+        table_data.append([
+            row['model'][:20],
+            row['backend'].upper(),
+            int(row['concurrency']),
+            f"{row['system_tps']:.0f}",
+            f"{row['duration_sec']:.1f}s",
+            f"{row['e2e_mean_ms']/1000:.1f}",
+            f"{row['gpu_util_mean']:.0f}%",
+            f"{row['power_mean_w']:.0f}"
+        ])
     
-    if table_data:
-        table = ax.table(
-            cellText=table_data,
-            rowLabels=row_labels,
-            colLabels=metric_labels,
-            cellLoc='center',
-            loc='center'
-        )
-        table.auto_set_font_size(False)
-        table.set_fontsize(10)
-        table.scale(1.2, 1.5)
-        
-        # Style header
-        for j in range(len(metric_labels)):
-            table[(0, j)].set_facecolor('#4472C4')
-            table[(0, j)].set_text_props(color='white', fontweight='bold')
-        
-        # Style row labels
-        for i in range(len(row_labels)):
-            table[(i+1, -1)].set_facecolor('#D9E2F3')
+    table = ax.table(
+        cellText=table_data,
+        colLabels=headers,
+        cellLoc='center',
+        loc='center'
+    )
+    table.auto_set_font_size(False)
+    table.set_fontsize(10)
+    table.scale(1.2, 1.8)
     
-    plt.title('Benchmark Results Summary', fontsize=14, fontweight='bold', pad=20)
+    # Style header
+    for j in range(len(headers)):
+        table[(0, j)].set_facecolor('#4472C4')
+        table[(0, j)].set_text_props(color='white', fontweight='bold')
+    
+    # Alternate row colors
+    for i in range(1, len(table_data) + 1):
+        for j in range(len(headers)):
+            if i % 2 == 0:
+                table[(i, j)].set_facecolor('#D9E2F3')
+    
+    plt.title('Benchmark Results Summary (Peak Concurrency)', fontsize=14, fontweight='bold', pad=20)
     plt.tight_layout()
     plt.savefig(os.path.join(output_dir, 'summary_table.png'), dpi=150, bbox_inches='tight')
     plt.close()
@@ -411,7 +429,6 @@ def main():
     parser.add_argument("--output", type=str, default="plots", help="Output directory for plots")
     args = parser.parse_args()
     
-    # Create output directory
     os.makedirs(args.output, exist_ok=True)
     
     print(f"\n{'='*60}")
@@ -421,7 +438,6 @@ def main():
     print(f"Output dir:  {args.output}")
     print(f"{'='*60}\n")
     
-    # Load all results
     print("[LOAD] Loading benchmark results...")
     df = load_all_results(args.results)
     
@@ -431,18 +447,21 @@ def main():
     
     print(f"[OK] Found {len(df)} benchmark runs")
     print(f"     Backends: {df['backend'].unique().tolist()}")
-    print(f"     Concurrency levels: {sorted(df['concurrency'].unique().tolist())}")
+    print(f"     Models: {df['model'].unique().tolist()}")
+    print(f"     Concurrency: {sorted(df['concurrency'].unique().tolist())}")
     print()
     
-    # Generate plots
-    print("[PLOT] Generating visualizations...")
+    print("[PLOT] Generating visualizations...\n")
     
-    plot_throughput_comparison(df, args.output)
-    plot_latency_comparison(df, args.output)
-    plot_duration_comparison(df, args.output)
-    plot_gpu_utilization(df, args.output)
-    plot_per_request_histogram(df, args.output)
-    plot_gpu_timeseries(df, args.output)
+    # Per-model plots
+    plot_throughput_by_model(df, args.output)
+    
+    # Combined plots
+    plot_all_throughput_combined(df, args.output)
+    plot_cross_model_comparison(df, args.output)
+    plot_latency_heatmap(df, args.output)
+    plot_gpu_comparison(df, args.output)
+    plot_scaling_efficiency(df, args.output)
     plot_summary_table(df, args.output)
     
     print(f"\n{'='*60}")
