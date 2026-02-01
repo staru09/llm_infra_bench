@@ -15,6 +15,13 @@ MODEL_NAME = "meta-llama/Meta-Llama-3-8B-Instruct"
 TIMEOUT = 300
 
 
+def get_model_short_name(model_name: str) -> str:
+    """Extract short model name for directory naming."""
+    # Remove org prefix (e.g., 'meta-llama/')
+    short_name = model_name.split('/')[-1]
+    return short_name
+
+
 def save_results_json(
     results: BenchmarkResults, 
     raw_metrics: list, 
@@ -252,10 +259,11 @@ async def main(args):
         print(f"Power:          Mean: {gpu_metrics.power_mean_watts:.1f}W | Max: {gpu_metrics.power_max_watts:.1f}W")
         print(f"Temperature:    Mean: {gpu_metrics.temp_mean_c:.1f}C | Max: {gpu_metrics.temp_max_c:.1f}C")
 
-    # Save Results
-    if args.output:
-        save_results_json(final_stats, valid_results, gpu_metrics, gpu_samples, args, total_duration, args.output)
-        save_results_csv(final_stats, valid_results, gpu_metrics, args, total_duration, args.output)
+    # Save Results - organized by backend/model-concurrency
+    model_short = get_model_short_name(MODEL_NAME)
+    output_dir = f"results/{args.backend}/{model_short}-concurrency-{args.concurrency}"
+    save_results_json(final_stats, valid_results, gpu_metrics, gpu_samples, args, total_duration, output_dir)
+    save_results_csv(final_stats, valid_results, gpu_metrics, args, total_duration, output_dir)
 
 
 if __name__ == "__main__":
