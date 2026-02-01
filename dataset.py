@@ -7,7 +7,7 @@ load_dotenv()
 
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1/chat/completions"
-MODEL = "anthropic/claude-3-opus"
+MODEL = "anthropic/claude-haiku-4.5"
 
 
 def call_claude_opus(prompt: str, max_tokens: int = 500) -> str:
