@@ -5,15 +5,27 @@ Uses SGLang's direct engine API for batch inference without HTTP server.
 import asyncio
 import json
 import os
+import sys
 import time
-import csv
-from datetime import datetime
 from dataclasses import dataclass
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import sglang as sgl
 
-from metrics import RequestMetrics, MetricsCalculator, BenchmarkResults
-from gpu_monitor import GPUMonitor, GPUMetrics
+from metrics.metrics import RequestMetrics, MetricsCalculator, BenchmarkResults
+from metrics.gpu_monitor import GPUMonitor, GPUMetrics
+from main import save_results_json, save_results_csv
+
+
+@dataclass
+class BenchmarkArgs:
+    """Simple args object to match main.py's interface."""
+    backend: str
+    url: str
+    concurrency: int
+    dataset: str
+    model: str
 
 CONFIG = {
     "model_path": "Qwen/Qwen3-8B",
@@ -26,115 +38,6 @@ def get_model_short_name(model_name: str) -> str:
     """Extract short model name for directory naming."""
     return model_name.split('/')[-1]
 
-
-def save_results(results: BenchmarkResults, raw_metrics: list, 
-                 gpu_metrics: GPUMetrics, gpu_samples: list,
-                 backend: str, concurrency: int, dataset: str, 
-                 duration: float, output_dir: str):
-    """Save benchmark results to JSON and CSV files."""
-    os.makedirs(output_dir, exist_ok=True)
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    
-    # JSON output
-    json_file = f"{output_dir}/{backend}_{timestamp}.json"
-    output = {
-        "metadata": {
-            "backend": backend,
-            "timestamp": timestamp,
-            "concurrency": concurrency,
-            "dataset": dataset,
-            "total_duration_sec": round(duration, 3),
-            "total_requests": len(raw_metrics),
-        },
-        "summary": {
-            "ttft_mean_ms": round(results.ttft_mean_ms, 3),
-            "ttft_p99_ms": round(results.ttft_p99_ms, 3),
-            "e2e_mean_ms": round(results.e2e_mean_ms, 3),
-            "e2e_p99_ms": round(results.e2e_p99_ms, 3),
-            "itl_mean_ms": round(results.itl_mean_ms, 3),
-            "itl_p99_ms": round(results.itl_p99_ms, 3),
-            "tpot_mean_ms": round(results.tpot_mean_ms, 3),
-            "system_tps": round(results.system_tps, 3),
-            "system_rps": round(results.system_rps, 3),
-            "mean_prefill_speed_tokens_per_sec": round(results.mean_prefill_speed_tokens_per_sec, 3),
-        },
-        "gpu": {
-            "gpu_name": gpu_metrics.gpu_name,
-            "samples_count": gpu_metrics.samples_count,
-            "gpu_util_mean": round(gpu_metrics.gpu_util_mean, 2),
-            "gpu_util_max": round(gpu_metrics.gpu_util_max, 2),
-            "memory_used_mean_mb": round(gpu_metrics.memory_used_mean_mb, 1),
-            "memory_used_max_mb": round(gpu_metrics.memory_used_max_mb, 1),
-            "memory_total_mb": round(gpu_metrics.memory_total_mb, 1),
-            "power_mean_watts": round(gpu_metrics.power_mean_watts, 1),
-            "power_max_watts": round(gpu_metrics.power_max_watts, 1),
-            "temp_mean_c": round(gpu_metrics.temp_mean_c, 1),
-            "temp_max_c": round(gpu_metrics.temp_max_c, 1),
-        },
-        "per_request": [
-            {
-                "request_id": m.request_id,
-                "input_tokens": m.input_tokens,
-                "output_tokens": m.output_tokens,
-                "ttft_ms": round(m.ttft * 1000, 3),
-                "e2e_ms": round(m.e2e_latency * 1000, 3),
-                "tpot_ms": round(m.tpot * 1000, 3),
-            }
-            for m in raw_metrics
-        ],
-        "gpu_samples": gpu_samples
-    }
-    
-    with open(json_file, "w") as f:
-        json.dump(output, f, indent=2)
-    print(f"[SAVED] JSON: {json_file}")
-    
-    # CSV Summary
-    summary_file = f"{output_dir}/benchmark_summary.csv"
-    file_exists = os.path.exists(summary_file)
-    
-    with open(summary_file, "a", newline="") as f:
-        writer = csv.writer(f)
-        if not file_exists:
-            writer.writerow([
-                "timestamp", "backend", "concurrency", "total_requests", "duration_sec",
-                "ttft_mean_ms", "ttft_p99_ms", "e2e_mean_ms", "e2e_p99_ms",
-                "itl_mean_ms", "itl_p99_ms", "tpot_mean_ms", 
-                "system_tps", "system_rps", "prefill_speed",
-                "gpu_name", "gpu_util_mean", "gpu_util_max",
-                "mem_used_mean_mb", "mem_used_max_mb", "mem_total_mb",
-                "power_mean_w", "power_max_w", "temp_mean_c", "temp_max_c"
-            ])
-        writer.writerow([
-            timestamp, backend, concurrency, len(raw_metrics), round(duration, 3),
-            round(results.ttft_mean_ms, 3), round(results.ttft_p99_ms, 3),
-            round(results.e2e_mean_ms, 3), round(results.e2e_p99_ms, 3),
-            round(results.itl_mean_ms, 3), round(results.itl_p99_ms, 3),
-            round(results.tpot_mean_ms, 3),
-            round(results.system_tps, 3), round(results.system_rps, 3),
-            round(results.mean_prefill_speed_tokens_per_sec, 3),
-            gpu_metrics.gpu_name, round(gpu_metrics.gpu_util_mean, 2), 
-            round(gpu_metrics.gpu_util_max, 2),
-            round(gpu_metrics.memory_used_mean_mb, 1), 
-            round(gpu_metrics.memory_used_max_mb, 1),
-            round(gpu_metrics.memory_total_mb, 1),
-            round(gpu_metrics.power_mean_watts, 1), 
-            round(gpu_metrics.power_max_watts, 1),
-            round(gpu_metrics.temp_mean_c, 1), round(gpu_metrics.temp_max_c, 1)
-        ])
-    print(f"[SAVED] CSV Summary: {summary_file}")
-    
-    # Per-request CSV
-    per_request_file = f"{output_dir}/{backend}_{timestamp}_requests.csv"
-    with open(per_request_file, "w", newline="") as f:
-        writer = csv.writer(f)
-        writer.writerow(["request_id", "input_tokens", "output_tokens", "ttft_ms", "e2e_ms", "tpot_ms"])
-        for m in raw_metrics:
-            writer.writerow([
-                m.request_id, m.input_tokens, m.output_tokens,
-                round(m.ttft * 1000, 3), round(m.e2e_latency * 1000, 3), round(m.tpot * 1000, 3)
-            ])
-    print(f"[SAVED] CSV Requests: {per_request_file}")
 
 
 async def run_single_request(llm, prompt_data, request_id):
@@ -242,12 +145,19 @@ def run_benchmark(concurrency=20, dataset="sharegpt_data.json", model=None):
             print(f"Power:          Mean: {gpu_metrics.power_mean_watts:.1f}W | Max: {gpu_metrics.power_max_watts:.1f}W")
             print(f"Temperature:    Mean: {gpu_metrics.temp_mean_c:.1f}C | Max: {gpu_metrics.temp_max_c:.1f}C")
         
-        # Save results
+        # Save results using shared functions from main.py
         model_short = get_model_short_name(model_path)
         output_dir = f"results/sglang/{model_short}-concurrency-{concurrency}"
         
-        save_results(final_stats, valid_results, gpu_metrics, gpu_samples,
-                     "sglang", concurrency, dataset_path, total_duration, output_dir)
+        args = BenchmarkArgs(
+            backend="sglang",
+            url="offline",  # No HTTP server for SGLang offline
+            concurrency=concurrency,
+            dataset=dataset_path,
+            model=model_path
+        )
+        save_results_json(final_stats, valid_results, gpu_metrics, gpu_samples, args, total_duration, output_dir)
+        save_results_csv(final_stats, valid_results, gpu_metrics, args, total_duration, output_dir)
         
     finally:
         print("[STOP] Shutting down SGLang Engine...")

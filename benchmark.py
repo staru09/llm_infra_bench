@@ -90,11 +90,11 @@ Examples:
         
         # Import the appropriate backend module
         if backend == "vllm":
-            from run_vllm import run_benchmark
+            from inference_engines.run_vllm import run_benchmark
         elif backend == "sglang":
-            from run_sglang import run_benchmark
+            from inference_engines.run_sglang import run_benchmark
         elif backend == "llamacpp":
-            from run_llamacpp import run_benchmark
+            from inference_engines.run_llamacpp import run_benchmark
         else:
             print(f"[WARN] Unknown backend: {backend}")
             continue

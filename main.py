@@ -8,8 +8,8 @@ from datetime import datetime
 
 import aiohttp
 
-from metrics import RequestMetrics, MetricsCalculator, BenchmarkResults
-from gpu_monitor import GPUMonitor, GPUMetrics, NVML_AVAILABLE
+from metrics.metrics import RequestMetrics, MetricsCalculator, BenchmarkResults
+from metrics.gpu_monitor import GPUMonitor, GPUMetrics, NVML_AVAILABLE
 
 MODEL_NAME = "Qwen/Qwen3-8B"
 TIMEOUT = 300
